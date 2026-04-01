@@ -31,10 +31,10 @@ export function getStatusColor(status: string) {
 export function getStatusLabel(status: string) {
   switch (status) {
     case 'draft': return 'مسودة';
-    case 'review': return 'قيد المراجعة الداخلية';
+    case 'review': return 'بانتظار المراجعة الداخلية';
     case 'sector_approval': return 'بانتظار اعتماد القطاع';
     case 'final_approval': return 'بانتظار الاعتماد النهائي';
-    case 'ready': return 'جاهز للنشر';
+    case 'ready': return 'تمت الموافقة عليها';
     case 'published': return 'منشور';
     case 'archived': return 'مؤرشف';
     case 'rejected': return 'معاد للتعديل';

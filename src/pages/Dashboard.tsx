@@ -1,6 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db, seedInitialData } from '../firebase';
 import { NewsItem, ActivityLog } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { cn, formatDate, getStatusColor, getStatusLabel } from '../lib/utils';
@@ -10,10 +8,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const [stats, setStats] = useState({
-    pending: 0,
+    pendingReview: 0,
     approved: 0,
     published: 0,
-    rejected: 0,
     total: 0,
   });
   const [recentNews, setRecentNews] = useState<NewsItem[]>([]);
@@ -23,27 +20,40 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        await seedInitialData();
-        const newsRef = collection(db, 'news_items');
-        const allNews = await getDocs(newsRef);
-        const newsData = allNews.docs.map(doc => doc.data() as NewsItem);
+        const newsRes = await fetch('/api/news');
+        const newsData: NewsItem[] = await newsRes.json();
         
+        // Logic:
+        // - "عناصر بانتظار المراجعة": pending any of the 3 editing processes AND no publishDate
+        // - "تمت الموافقة عليها": approved but don't have a date for publication
+        // - "Published": has a publishing date
+        
+        const pendingReview = newsData.filter(n => 
+          (!n.isEdited || !n.isReviewed || !n.isApprovedByDept || !n.isApprovedByFinal) && !n.publishDate
+        ).length;
+
+        const approved = newsData.filter(n => 
+          n.isApprovedByFinal && !n.publishDate
+        ).length;
+
+        const published = newsData.filter(n => !!n.publishDate).length;
+
         setStats({
-          pending: newsData.filter(n => ['review', 'sector_approval', 'final_approval'].includes(n.status)).length,
-          approved: newsData.filter(n => n.status === 'ready').length,
-          published: newsData.filter(n => n.status === 'published').length,
-          rejected: newsData.filter(n => n.status === 'rejected').length,
+          pendingReview,
+          approved,
+          published,
           total: newsData.length,
         });
 
-        const recentNewsQuery = query(newsRef, orderBy('createdAt', 'desc'), limit(3));
-        const recentNewsSnap = await getDocs(recentNewsQuery);
-        setRecentNews(recentNewsSnap.docs.map(doc => doc.data() as NewsItem));
+        // مهامي الحالية: show top 5 pending without publication date
+        const pendingTasks = newsData
+          .filter(n => !n.publishDate)
+          .slice(0, 5);
+        setRecentNews(pendingTasks);
 
-        const activityRef = collection(db, 'activity_logs');
-        const activityQuery = query(activityRef, orderBy('timestamp', 'desc'), limit(5));
-        const activitySnap = await getDocs(activityQuery);
-        setRecentActivity(activitySnap.docs.map(doc => doc.data() as ActivityLog));
+        const activityRes = await fetch('/api/activity-logs');
+        const activityData = await activityRes.json();
+        setRecentActivity(activityData.slice(0, 5));
 
       } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -80,25 +90,34 @@ const Dashboard: React.FC = () => {
       </section>
 
       {/* Summary Cards */}
-      <section className="grid grid-cols-1 md:grid-cols-2 gap-6" dir="rtl">
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-6" dir="rtl">
         <div className="relative overflow-hidden group bg-surface-container-lowest rounded-xl p-8 shadow-[0_10px_30px_rgba(25,28,30,0.06)] flex flex-row justify-between items-center transition-transform hover:-translate-y-1">
           <div className="relative z-10 text-right">
             <p className="text-on-surface-variant font-medium mb-1">عناصر بانتظار المراجعة</p>
-            <h2 className="text-5xl font-extrabold text-primary">{stats.pending}</h2>
+            <h2 className="text-5xl font-extrabold text-primary">{stats.pendingReview}</h2>
           </div>
           <div className="bg-secondary-container p-5 rounded-full text-primary shrink-0">
             <span className="material-symbols-rounded text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>pending_actions</span>
           </div>
-          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-primary/10 to-transparent rounded-bl-full opacity-50"></div>
         </div>
 
         <div className="relative overflow-hidden group bg-surface-container-lowest rounded-xl p-8 shadow-[0_10px_30px_rgba(25,28,30,0.06)] flex flex-row justify-between items-center transition-transform hover:-translate-y-1 border-r-4 border-primary">
           <div className="relative z-10 text-right">
             <p className="text-on-surface-variant font-medium mb-1">تمت الموافقة عليها</p>
-            <h2 className="text-5xl font-extrabold text-primary">{stats.approved + stats.published}</h2>
+            <h2 className="text-5xl font-extrabold text-primary">{stats.approved}</h2>
           </div>
           <div className="bg-primary-container/20 p-5 rounded-full text-primary shrink-0">
             <span className="material-symbols-rounded text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>check_circle</span>
+          </div>
+        </div>
+
+        <div className="relative overflow-hidden group bg-surface-container-lowest rounded-xl p-8 shadow-[0_10px_30px_rgba(25,28,30,0.06)] flex flex-row justify-between items-center transition-transform hover:-translate-y-1">
+          <div className="relative z-10 text-right">
+            <p className="text-on-surface-variant font-medium mb-1">تم النشر</p>
+            <h2 className="text-5xl font-extrabold text-primary">{stats.published}</h2>
+          </div>
+          <div className="bg-tertiary-container p-5 rounded-full text-primary shrink-0">
+            <span className="material-symbols-rounded text-4xl" style={{ fontVariationSettings: "'FILL' 1" }}>publish</span>
           </div>
         </div>
       </section>
@@ -107,11 +126,11 @@ const Dashboard: React.FC = () => {
         {/* Current Tasks */}
         <section className="lg:col-span-2 space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="text-2xl font-bold text-primary">مهامي الحالية</h3>
+            <h3 className="text-2xl font-bold text-primary">مهامي الحالية (بانتظار النشر)</h3>
             <Link to="/news" className="text-primary font-bold text-sm hover:underline">عرض الكل</Link>
           </div>
           <div className="space-y-4">
-            {recentNews.map((news) => (
+            {recentNews.length > 0 ? recentNews.map((news) => (
               <Link 
                 key={news.id} 
                 to={`/news/${news.id}`}
@@ -137,12 +156,14 @@ const Dashboard: React.FC = () => {
                   <span className={cn("px-3 py-1 rounded-full text-xs font-bold", getStatusColor(news.status))}>
                     {getStatusLabel(news.status)}
                   </span>
-                  <button className="p-2 hover:bg-surface-container-high rounded-full transition-colors text-on-surface-variant">
-                    <span className="material-symbols-rounded">more_vert</span>
-                  </button>
                 </div>
               </Link>
-            ))}
+            )) : (
+              <div className="bg-surface-container-lowest rounded-xl p-10 text-center text-on-surface-variant">
+                <span className="material-symbols-rounded text-4xl mb-2 block">task_alt</span>
+                <p>لا توجد مهام حالية بانتظار النشر</p>
+              </div>
+            )}
           </div>
         </section>
 

@@ -1,6 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
 import { User, UserRole } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
@@ -11,22 +9,86 @@ const Admin: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<UserRole | 'all'>('all');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newUser, setNewUser] = useState({
+    username: '',
+    password: '',
+    name: '',
+    email: '',
+    role: 'editor' as UserRole,
+    status: 'active' as 'active' | 'inactive',
+    departmentId: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchUsers = async () => {
+    try {
+      const res = await fetch('/api/users');
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data);
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const usersRef = collection(db, 'users');
-        const querySnapshot = await getDocs(usersRef);
-        setUsers(querySnapshot.docs.map(doc => doc.data() as User));
-      } catch (error) {
-        console.error('Error fetching users:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchUsers();
   }, []);
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser)
+      });
+      if (res.ok) {
+        setShowAddModal(false);
+        setNewUser({
+          username: '',
+          password: '',
+          name: '',
+          email: '',
+          role: 'editor',
+          status: 'active',
+          departmentId: ''
+        });
+        fetchUsers();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'فشل إضافة المستخدم');
+      }
+    } catch (error) {
+      console.error('Error adding user:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteUser = async (uid: string) => {
+    if (uid === currentUser?.uid) {
+      alert('لا يمكنك حذف حسابك الخاص');
+      return;
+    }
+    if (!window.confirm('هل أنت متأكد من حذف هذا المستخدم؟')) return;
+    try {
+      const res = await fetch(`/api/users/${uid}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchUsers();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'فشل حذف المستخدم');
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+    }
+  };
 
   const filteredUsers = users.filter(u => {
     const matchesSearch = u.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -51,11 +113,112 @@ const Admin: React.FC = () => {
           <h1 className="text-2xl font-bold text-on-surface tracking-tight">إدارة المستخدمين</h1>
           <p className="text-on-surface-variant font-medium mt-1">إضافة وتعديل صلاحيات الموظفين في النظام.</p>
         </div>
-        <button className="h-12 px-6 bg-primary text-on-primary font-bold rounded-full shadow-lg shadow-primary/20 hover:shadow-xl transition-all flex items-center gap-2">
+        <button 
+          onClick={() => setShowAddModal(true)}
+          className="h-12 px-6 bg-primary text-on-primary font-bold rounded-full shadow-lg shadow-primary/20 hover:shadow-xl transition-all flex items-center gap-2"
+        >
           <span className="material-symbols-rounded">person_add</span>
           <span>إضافة مستخدم جديد</span>
         </button>
       </div>
+
+      {/* Add User Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" dir="rtl">
+          <div className="bg-surface-container-lowest w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-outline-variant">
+            <div className="p-6 border-b border-outline-variant flex items-center justify-between">
+              <h2 className="text-xl font-bold text-primary">إضافة مستخدم جديد</h2>
+              <button onClick={() => setShowAddModal(false)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors">
+                <span className="material-symbols-rounded">close</span>
+              </button>
+            </div>
+            <form onSubmit={handleAddUser} className="p-6 space-y-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-on-surface-variant">الاسم الكامل</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                  value={newUser.name}
+                  onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-on-surface-variant">اسم المستخدم (Login)</label>
+                <input
+                  type="text"
+                  required
+                  className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-on-surface-variant">كلمة المرور</label>
+                <input
+                  type="password"
+                  required
+                  className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-on-surface-variant">البريد الإلكتروني</label>
+                <input
+                  type="email"
+                  required
+                  className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                  value={newUser.email}
+                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-on-surface-variant">الصلاحية</label>
+                  <select
+                    className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
+                  >
+                    <option value="editor">محرر / معد</option>
+                    <option value="reviewer">مراجع داخلي</option>
+                    <option value="sector_approver">معتمد قطاع</option>
+                    <option value="final_approver">معتمد نهائي</option>
+                    <option value="admin">مسؤول نظام</option>
+                    <option value="viewer">مشاهد فقط</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-on-surface-variant">القطاع</label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                    value={newUser.departmentId}
+                    onChange={(e) => setNewUser({ ...newUser, departmentId: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="pt-4 flex gap-3">
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="flex-1 h-12 bg-primary text-on-primary font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50"
+                >
+                  {isSubmitting ? 'جاري الإضافة...' : 'حفظ المستخدم'}
+                </button>
+                <button 
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 h-12 bg-surface-container-high text-on-surface font-bold rounded-xl hover:bg-surface-container-highest transition-all"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-surface-container-lowest p-4 rounded-3xl border border-outline-variant shadow-sm grid grid-cols-1 md:grid-cols-3 gap-4" dir="rtl">
@@ -142,10 +305,11 @@ const Admin: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 text-left">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="w-9 h-9 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-primary-container hover:text-on-primary-container transition-all">
-                        <span className="material-symbols-rounded text-[20px]">edit</span>
-                      </button>
-                      <button className="w-9 h-9 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-error-container hover:text-on-error-container transition-all">
+                      <button 
+                        onClick={() => handleDeleteUser(u.uid)}
+                        className="w-9 h-9 flex items-center justify-center rounded-full text-on-surface-variant hover:bg-error-container hover:text-on-error-container transition-all"
+                        title="حذف"
+                      >
                         <span className="material-symbols-rounded text-[20px]">delete</span>
                       </button>
                     </div>

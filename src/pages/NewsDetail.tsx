@@ -1,18 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { 
-  doc, 
-  getDoc, 
-  updateDoc, 
-  addDoc, 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot,
-  where
-} from 'firebase/firestore';
-import { db } from '../firebase';
-import { NewsItem, NewsStatus, Comment, ActivityLog, Attachment, User } from '../types';
+import { NewsItem, NewsStatus, Comment, ActivityLog, Attachment } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { cn, formatDate, getStatusColor, getStatusLabel } from '../lib/utils';
 
@@ -32,69 +20,76 @@ const NewsDetail: React.FC = () => {
   useEffect(() => {
     if (!id) return;
 
-    const fetchNews = async () => {
-      const docRef = doc(db, 'news_items', id);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setNews({ id: docSnap.id, ...docSnap.data() } as NewsItem);
-      } else {
-        navigate('/news');
+    const fetchNewsData = async () => {
+      try {
+        const [newsRes, commentsRes, logsRes] = await Promise.all([
+          fetch(`/api/news/${id}`),
+          fetch(`/api/news/${id}/comments`),
+          fetch(`/api/activity-logs?newsItemId=${id}`)
+        ]);
+
+        if (newsRes.ok) {
+          const newsData = await newsRes.json();
+          setNews(newsData);
+        } else {
+          navigate('/news');
+        }
+
+        if (commentsRes.ok) {
+          const commentsData = await commentsRes.json();
+          setComments(commentsData);
+        }
+
+        if (logsRes.ok) {
+          const logsData = await logsRes.json();
+          setActivityLogs(logsData);
+        }
+      } catch (error) {
+        console.error('Error fetching news data:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    fetchNews();
-
-    // Listen for comments
-    const commentsRef = collection(db, 'news_items', id, 'comments');
-    const qComments = query(commentsRef, orderBy('createdAt', 'asc'));
-    const unsubComments = onSnapshot(qComments, (snapshot) => {
-      setComments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Comment)));
-    });
-
-    // Listen for attachments
-    const attachmentsRef = collection(db, 'news_items', id, 'attachments');
-    const unsubAttachments = onSnapshot(attachmentsRef, (snapshot) => {
-      setAttachments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Attachment)));
-    });
-
-    // Listen for activity logs
-    const logsRef = collection(db, 'activity_logs');
-    const qLogs = query(logsRef, where('newsItemId', '==', id), orderBy('timestamp', 'desc'));
-    const unsubLogs = onSnapshot(qLogs, (snapshot) => {
-      setActivityLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ActivityLog)));
-    });
-
-    return () => {
-      unsubComments();
-      unsubAttachments();
-      unsubLogs();
-    };
+    fetchNewsData();
   }, [id, navigate]);
 
   const handleStatusChange = async (newStatus: NewsStatus, actionLabel: string) => {
     if (!news || !user) return;
     setIsSubmitting(true);
     try {
-      const newsRef = doc(db, 'news_items', news.id);
       const oldStatus = news.status;
+      const updatedNews = { ...news, status: newStatus, updatedAt: new Date().toISOString() };
       
-      await updateDoc(newsRef, {
-        status: newStatus,
-        updatedAt: new Date().toISOString()
+      const res = await fetch(`/api/news/${news.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedNews)
       });
+
+      if (!res.ok) throw new Error('Failed to update status');
 
       // Log activity
-      await addDoc(collection(db, 'activity_logs'), {
-        newsItemId: news.id,
-        userId: user.uid,
-        action: actionLabel,
-        previousStatus: oldStatus,
-        newStatus: newStatus,
-        timestamp: new Date().toISOString()
+      await fetch('/api/activity-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          newsItemId: news.id,
+          userId: user.uid,
+          action: actionLabel,
+          previousStatus: oldStatus,
+          newStatus: newStatus,
+          timestamp: new Date().toISOString()
+        })
       });
 
-      setNews({ ...news, status: newStatus });
+      setNews(updatedNews);
+      
+      // Refresh logs
+      const logsRes = await fetch(`/api/activity-logs?newsItemId=${news.id}`);
+      if (logsRes.ok) {
+        setActivityLogs(await logsRes.json());
+      }
     } catch (error) {
       console.error('Error updating status:', error);
     } finally {
@@ -108,13 +103,16 @@ const NewsDetail: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const commentsRef = collection(db, 'news_items', news.id, 'comments');
-      await addDoc(commentsRef, {
-        newsItemId: news.id,
-        userId: user.uid,
-        text: newComment,
-        createdAt: new Date().toISOString()
+      const res = await fetch(`/api/news/${news.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: newComment })
       });
+
+      if (!res.ok) throw new Error('Failed to add comment');
+
+      const addedComment = await res.json();
+      setComments([...comments, addedComment]);
       setNewComment('');
     } catch (error) {
       console.error('Error adding comment:', error);
@@ -131,21 +129,30 @@ const NewsDetail: React.FC = () => {
     if (!news || !user) return;
     setIsSubmitting(true);
     try {
-      const newsRef = doc(db, 'news_items', news.id);
-      await updateDoc(newsRef, {
-        status: 'archived',
-        isArchived: true,
-        updatedAt: new Date().toISOString()
+      const res = await fetch(`/api/news/${news.id}/archive`, {
+        method: 'POST'
       });
 
-      await addDoc(collection(db, 'activity_logs'), {
-        newsItemId: news.id,
-        userId: user.uid,
-        action: 'أرشفة الخبر (تم الانتهاء)',
-        timestamp: new Date().toISOString()
+      if (!res.ok) throw new Error('Failed to archive news');
+
+      await fetch('/api/activity-logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          newsItemId: news.id,
+          userId: user.uid,
+          action: 'أرشفة الخبر (تم الانتهاء)',
+          timestamp: new Date().toISOString()
+        })
       });
 
       setNews({ ...news, status: 'archived', isArchived: true });
+      
+      // Refresh logs
+      const logsRes = await fetch(`/api/activity-logs?newsItemId=${news.id}`);
+      if (logsRes.ok) {
+        setActivityLogs(await logsRes.json());
+      }
     } catch (error) {
       console.error('Error archiving news:', error);
     } finally {

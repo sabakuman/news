@@ -58,7 +58,7 @@ const App: React.FC = () => {
             </ProtectedRoute>
           } />
           
-          <Route path="/news/:id/edit" element={
+          <Route path="/news/edit/:id" element={
             <ProtectedRoute roles={['admin', 'editor']}>
               <NewsForm />
             </ProtectedRoute>

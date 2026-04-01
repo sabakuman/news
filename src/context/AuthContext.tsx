@@ -1,70 +1,65 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
 import { User } from '../types';
 
 interface AuthContextType {
   user: User | null;
-  firebaseUser: FirebaseUser | null;
   loading: boolean;
   isAdmin: boolean;
   isEditor: boolean;
   isReviewer: boolean;
   isSectorApprover: boolean;
   isFinalApprover: boolean;
+  login: (user: User) => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      setFirebaseUser(fbUser);
-      if (fbUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
-          if (userDoc.exists()) {
-            setUser(userDoc.data() as User);
-          } else {
-            // Create user doc if it doesn't exist
-            const newUser: User = {
-              uid: fbUser.uid,
-              name: fbUser.displayName || 'مستخدم جديد',
-              email: fbUser.email || '',
-              role: fbUser.email === 'Sabakuman@gmail.com' ? 'admin' : 'viewer',
-              status: 'active',
-              departmentId: 'media_dept'
-            };
-            await setDoc(doc(db, 'users', fbUser.uid), newUser);
-            setUser(newUser);
-          }
-        } catch (error) {
-          console.error('Error fetching user doc:', error);
-          setUser(null);
+    const checkAuth = async () => {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData);
         }
-      } else {
-        setUser(null);
+      } catch (error) {
+        console.error('Auth check failed:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
+    checkAuth();
   }, []);
+
+  const login = (userData: User) => {
+    setUser(userData);
+  };
+
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setUser(null);
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
 
   const value = {
     user,
-    firebaseUser,
     loading,
     isAdmin: user?.role === 'admin',
     isEditor: user?.role === 'editor',
     isReviewer: user?.role === 'reviewer',
     isSectorApprover: user?.role === 'sector_approver',
     isFinalApprover: user?.role === 'final_approver',
+    login,
+    logout,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
