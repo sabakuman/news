@@ -1,0 +1,103 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Fields: uid, name, email, role, departmentId, status
+    //
+    // Collection: departments
+    // Fields: id, name
+    //
+    // Collection: news_items
+    // Fields: id, title, type, departmentId, content, status, createdBy, createdAt, updatedAt, ...
+    //
+    // Collection: activity_logs
+    // Fields: id, newsItemId, userId, action, previousStatus, newStatus, timestamp
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "Sabakuman@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasRole(role) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'status']) &&
+             data.uid is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string &&
+             data.role in ['admin', 'editor', 'reviewer', 'sector_approver', 'final_approver', 'viewer'] &&
+             data.status in ['active', 'inactive'];
+    }
+
+    function isValidNewsItem(data) {
+      return data.keys().hasAll(['id', 'title', 'departmentId', 'status', 'createdBy', 'createdAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 500 &&
+             data.status in ['draft', 'review', 'sector_approval', 'final_approval', 'ready', 'published', 'archived', 'rejected'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(userId) && 
+                      isValidUser(request.resource.data) && 
+                      (request.resource.data.role == 'viewer' || isAdmin());
+      allow update: if (isOwner(userId) || isAdmin()) && 
+                      isValidUser(request.resource.data) && 
+                      (request.resource.data.role == resource.data.role || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /departments/{deptId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /news_items/{itemId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidNewsItem(request.resource.data);
+      allow update: if isAuthenticated() && isValidNewsItem(request.resource.data);
+      allow delete: if isAdmin();
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isAuthenticated();
+      }
+
+      match /attachments/{attachmentId} {
+        allow read: if true;
+        allow write: if isAuthenticated();
+
+        match /versions/{versionId} {
+          allow read: if true;
+          allow write: if isAuthenticated();
+        }
+      }
+    }
+
+    match /activity_logs/{logId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+    }
+  }
+}

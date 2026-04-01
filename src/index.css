@@ -1,0 +1,81 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@theme {
+  --font-sans: "Noto Sans Arabic", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-headline: "Noto Sans Arabic", sans-serif;
+  
+  --color-primary: #005fb0;
+  --color-primary-container: #d1e4ff;
+  --color-on-primary: #ffffff;
+  --color-on-primary-container: #001d36;
+  
+  --color-secondary: #535f70;
+  --color-secondary-container: #d7e3f7;
+  --color-on-secondary: #ffffff;
+  --color-on-secondary-container: #101c2b;
+  
+  --color-surface: #fdfbff;
+  --color-on-surface: #1a1c1e;
+  --color-surface-container: #f0f0f3;
+  --color-surface-container-low: #f8f9fc;
+  --color-surface-container-high: #e2e2e6;
+  --color-surface-container-highest: #dcdee2;
+  --color-surface-container-lowest: #ffffff;
+  
+  --color-outline: #73777f;
+  --color-outline-variant: #c3c7cf;
+  
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #410002;
+  
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+  --radius-3xl: 2.5rem;
+}
+
+:root {
+  direction: rtl;
+}
+
+body {
+  @apply bg-surface text-on-surface font-sans antialiased;
+  direction: rtl;
+  text-align: right;
+}
+
+.fade-in {
+  animation: fadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.glass-effect {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.material-symbols-rounded {
+  font-family: 'Material Symbols Rounded';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'liga';
+}
+
