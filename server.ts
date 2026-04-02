@@ -2,7 +2,9 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { JSONFilePreset } from 'lowdb/node';
+import fs from 'fs';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import cookieParser from 'cookie-parser';
@@ -12,42 +14,162 @@ const __dirname = path.dirname(__filename);
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-it';
 
-interface Data {
-  users: any[];
-  news_items: any[];
-  activity_logs: any[];
-  comments: any[];
-}
-
 async function startServer() {
-  const defaultData: Data = { 
-    users: [], 
-    news_items: [], 
-    activity_logs: [], 
-    comments: [] 
-  };
-  
-  const db = await JSONFilePreset<Data>('database.json', defaultData);
+  // Ensure data directory exists
+  const dataDir = path.join(process.cwd(), 'data');
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir);
+  }
 
-  // Seed initial admin user
-  const adminExists = db.data.users.find(u => u.username === 'admin');
+  const dbPath = path.join(dataDir, 'news.db');
+  const db = await open({
+    filename: dbPath,
+    driver: sqlite3.Database
+  });
+
+  // SQLite config
+  await db.run('PRAGMA foreign_keys = ON;');
+  await db.run('PRAGMA journal_mode = WAL;');
+
+  // Initialize tables
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      uid TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      status TEXT NOT NULL,
+      departmentId TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS news_items (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      type TEXT NOT NULL,
+      departmentId TEXT NOT NULL,
+      content TEXT NOT NULL,
+      contentFileName TEXT,
+      preparedBy TEXT,
+      isEdited INTEGER DEFAULT 0,
+      isReviewed INTEGER DEFAULT 0,
+      reviewerName TEXT,
+      reviewerFileName TEXT,
+      isApprovedByDept INTEGER DEFAULT 0,
+      approverName TEXT,
+      approverFileName TEXT,
+      isApprovedByFinal INTEGER DEFAULT 0,
+      finalApproverName TEXT,
+      finalApproverFileName TEXT,
+      otherType TEXT,
+      publishDate TEXT,
+      notes TEXT,
+      newsUrl TEXT,
+      isArchived INTEGER DEFAULT 0,
+      status TEXT NOT NULL,
+      createdBy TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (createdBy) REFERENCES users(uid)
+    );
+
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id TEXT PRIMARY KEY,
+      newsItemId TEXT NOT NULL,
+      userId TEXT NOT NULL,
+      action TEXT NOT NULL,
+      previousStatus TEXT,
+      newStatus TEXT,
+      timestamp TEXT NOT NULL,
+      FOREIGN KEY (newsItemId) REFERENCES news_items(id),
+      FOREIGN KEY (userId) REFERENCES users(uid)
+    );
+
+    CREATE TABLE IF NOT EXISTS comments (
+      id TEXT PRIMARY KEY,
+      newsItemId TEXT NOT NULL,
+      userId TEXT NOT NULL,
+      text TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (newsItemId) REFERENCES news_items(id),
+      FOREIGN KEY (userId) REFERENCES users(uid)
+    );
+  `);
+
+  // Migration from lowdb if database.json exists and SQLite is empty
+  const userCount = await db.get('SELECT COUNT(*) as count FROM users');
+  if (userCount.count === 0) {
+    const lowdbPath = path.join(process.cwd(), 'database.json');
+    if (fs.existsSync(lowdbPath)) {
+      try {
+        const lowdbData = JSON.parse(fs.readFileSync(lowdbPath, 'utf-8'));
+        
+        // Migrate users
+        for (const user of lowdbData.users || []) {
+          await db.run(
+            'INSERT INTO users (uid, username, password, name, email, role, status, departmentId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [user.uid, user.username, user.password, user.name, user.email, user.role, user.status, user.departmentId]
+          );
+        }
+
+        // Migrate news items
+        for (const item of lowdbData.news_items || []) {
+          await db.run(
+            `INSERT INTO news_items (
+              id, title, type, departmentId, content, contentFileName, preparedBy, 
+              isEdited, isReviewed, reviewerName, reviewerFileName, 
+              isApprovedByDept, approverName, approverFileName, 
+              isApprovedByFinal, finalApproverName, finalApproverFileName, 
+              otherType, publishDate, notes, newsUrl, isArchived, status, createdBy, createdAt, updatedAt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              item.id, item.title, item.type, item.departmentId, item.content, item.contentFileName, item.preparedBy,
+              item.isEdited ? 1 : 0, item.isReviewed ? 1 : 0, item.reviewerName, item.reviewerFileName,
+              item.isApprovedByDept ? 1 : 0, item.approverName, item.approverFileName,
+              item.isApprovedByFinal ? 1 : 0, item.finalApproverName, item.finalApproverFileName,
+              item.otherType, item.publishDate, item.notes, item.newsUrl, item.isArchived ? 1 : 0, item.status, item.createdBy, item.createdAt, item.updatedAt
+            ]
+          );
+        }
+
+        // Migrate logs
+        for (const log of lowdbData.activity_logs || []) {
+          await db.run(
+            'INSERT INTO activity_logs (id, newsItemId, userId, action, previousStatus, newStatus, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [log.id, log.newsItemId, log.userId, log.action, log.previousStatus, log.newStatus, log.timestamp]
+          );
+        }
+
+        // Migrate comments
+        for (const comment of lowdbData.comments || []) {
+          await db.run(
+            'INSERT INTO comments (id, newsItemId, userId, text, createdAt) VALUES (?, ?, ?, ?, ?)',
+            [comment.id, comment.newsItemId, comment.userId, comment.text, comment.createdAt]
+          );
+        }
+        console.log('Successfully migrated data from lowdb to SQLite');
+      } catch (err) {
+        console.error('Error migrating data from lowdb:', err);
+      }
+    }
+  }
+
+  // Seed initial admin user if still empty
+  const adminExists = await db.get('SELECT * FROM users WHERE username = ?', ['admin']);
   if (!adminExists) {
     const hashedPassword = bcrypt.hashSync('admin', 10);
-    db.data.users.push({
-      uid: 'admin-uid',
-      username: 'admin',
-      password: hashedPassword,
-      name: 'المسؤول الرئيسي',
-      email: 'admin@mohre.gov.ae',
-      role: 'admin',
-      status: 'active',
-      departmentId: 'media_dept'
-    });
-    await db.write();
+    await db.run(
+      'INSERT INTO users (uid, username, password, name, email, role, status, departmentId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      ['admin-uid', 'admin', hashedPassword, 'المسؤول الرئيسي', 'admin@mohre.gov.ae', 'admin', 'active', 'media_dept']
+    );
   }
 
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+
+  // Trust proxy is required for secure cookies behind a proxy
+  app.set('trust proxy', 1);
 
   app.use(express.json());
   app.use(cookieParser());
@@ -55,26 +177,39 @@ async function startServer() {
   // Auth Middleware
   const authenticateToken = (req: any, res: any, next: any) => {
     const token = req.cookies.token;
-    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    if (!token) {
+      console.log('No token found in cookies');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
-      if (err) return res.status(403).json({ error: 'Forbidden' });
+      if (err) {
+        console.log('JWT verification failed:', err.message);
+        return res.status(403).json({ error: 'Forbidden' });
+      }
       req.user = user;
       next();
     });
   };
 
   // Auth Routes
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
-    const user = db.data.users.find(u => u.username === username);
+    const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
 
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
     const token = jwt.sign({ uid: user.uid, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
-    res.cookie('token', token, { httpOnly: true, secure: true, sameSite: 'none' });
+    
+    // Adjust cookie settings for better compatibility in iframe/proxy environments
+    res.cookie('token', token, { 
+      httpOnly: true, 
+      secure: false, // Set to false to ensure it works in preview environments
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    });
     
     const { password: _, ...userWithoutPassword } = user;
     res.json(userWithoutPassword);
@@ -85,17 +220,17 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  app.get('/api/auth/me', authenticateToken, (req: any, res) => {
-    const user = db.data.users.find(u => u.uid === req.user.uid);
+  app.get('/api/auth/me', authenticateToken, async (req: any, res) => {
+    const user = await db.get('SELECT * FROM users WHERE uid = ?', [req.user.uid]);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const { password: _, ...userWithoutPassword } = user;
     res.json(userWithoutPassword);
   });
 
   // User Management Routes (Admin only)
-  app.get('/api/users', authenticateToken, (req: any, res) => {
+  app.get('/api/users', authenticateToken, async (req: any, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
-    const users = db.data.users.map(({ password, ...u }) => u);
+    const users = await db.all('SELECT uid, username, name, email, role, status, departmentId FROM users');
     res.json(users);
   });
 
@@ -103,42 +238,56 @@ async function startServer() {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
     const { username, password, name, email, role, status, departmentId } = req.body;
     
-    if (db.data.users.some(u => u.username === username)) {
+    const existing = await db.get('SELECT uid FROM users WHERE username = ?', [username]);
+    if (existing) {
       return res.status(400).json({ error: 'Username already exists' });
     }
 
     const uid = 'user-' + Date.now();
     const hashedPassword = bcrypt.hashSync(password, 10);
     
-    const newUser = { uid, username, password: hashedPassword, name, email, role, status, departmentId };
-    db.data.users.push(newUser);
-    await db.write();
+    await db.run(
+      'INSERT INTO users (uid, username, password, name, email, role, status, departmentId) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [uid, username, hashedPassword, name, email, role, status, departmentId]
+    );
     
-    const { password: _, ...userWithoutPassword } = newUser;
-    res.json(userWithoutPassword);
+    res.json({ uid, username, name, email, role, status, departmentId });
   });
 
   app.delete('/api/users/:uid', authenticateToken, async (req: any, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
     if (req.params.uid === req.user.uid) return res.status(400).json({ error: 'Cannot delete yourself' });
     
-    db.data.users = db.data.users.filter(u => u.uid !== req.params.uid);
-    await db.write();
+    await db.run('DELETE FROM users WHERE uid = ?', [req.params.uid]);
     res.json({ success: true });
   });
 
   // News Routes
-  app.get('/api/news', authenticateToken, (req, res) => {
-    const news = [...db.data.news_items].sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    res.json(news);
+  app.get('/api/news', authenticateToken, async (req, res) => {
+    const news = await db.all('SELECT * FROM news_items ORDER BY createdAt DESC');
+    // Map SQLite 0/1 back to booleans
+    const mappedNews = news.map(n => ({
+      ...n,
+      isEdited: !!n.isEdited,
+      isReviewed: !!n.isReviewed,
+      isApprovedByDept: !!n.isApprovedByDept,
+      isApprovedByFinal: !!n.isApprovedByFinal,
+      isArchived: !!n.isArchived,
+    }));
+    res.json(mappedNews);
   });
 
-  app.get('/api/news/:id', authenticateToken, (req, res) => {
-    const item = db.data.news_items.find(n => n.id === req.params.id);
+  app.get('/api/news/:id', authenticateToken, async (req, res) => {
+    const item = await db.get('SELECT * FROM news_items WHERE id = ?', [req.params.id]);
     if (!item) return res.status(404).json({ error: 'Not found' });
-    res.json(item);
+    res.json({
+      ...item,
+      isEdited: !!item.isEdited,
+      isReviewed: !!item.isReviewed,
+      isApprovedByDept: !!item.isApprovedByDept,
+      isApprovedByFinal: !!item.isApprovedByFinal,
+      isArchived: !!item.isArchived,
+    });
   });
 
   app.post('/api/news', authenticateToken, async (req: any, res) => {
@@ -146,103 +295,141 @@ async function startServer() {
     const id = item.id || 'news-' + Date.now();
     const now = new Date().toISOString();
     
-    const newItem = {
-      ...item,
-      id,
-      createdBy: req.user.uid,
-      createdAt: now,
-      updatedAt: now,
-      isEdited: !!item.isEdited,
-      isReviewed: !!item.isReviewed,
-      isApprovedByDept: !!item.isApprovedByDept,
-      isApprovedByFinal: !!item.isApprovedByFinal,
-      isArchived: !!item.isArchived,
-    };
+    const status = item.status || 'review';
+    const isEdited = !!item.isEdited ? 1 : 0;
+    const isReviewed = !!item.isReviewed ? 1 : 0;
+    const isApprovedByDept = !!item.isApprovedByDept ? 1 : 0;
+    const isApprovedByFinal = !!item.isApprovedByFinal ? 1 : 0;
+    const isArchived = !!item.isArchived ? 1 : 0;
+
+    await db.run(
+      `INSERT INTO news_items (
+        id, title, type, departmentId, content, contentFileName, preparedBy, 
+        isEdited, isReviewed, reviewerName, reviewerFileName, 
+        isApprovedByDept, approverName, approverFileName, 
+        isApprovedByFinal, finalApproverName, finalApproverFileName, 
+        otherType, publishDate, notes, newsUrl, isArchived, status, createdBy, createdAt, updatedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id, item.title, item.type, item.departmentId, item.content, item.contentFileName, item.preparedBy,
+        isEdited, isReviewed, item.reviewerName, item.reviewerFileName,
+        isApprovedByDept, item.approverName, item.approverFileName,
+        isApprovedByFinal, item.finalApproverName, item.finalApproverFileName,
+        item.otherType, item.publishDate, item.notes, item.newsUrl, isArchived, status, req.user.uid, now, now
+      ]
+    );
     
-    db.data.news_items.push(newItem);
-    await db.write();
-    res.json(newItem);
+    const newItem = await db.get('SELECT * FROM news_items WHERE id = ?', [id]);
+    res.json({
+      ...newItem,
+      isEdited: !!newItem.isEdited,
+      isReviewed: !!newItem.isReviewed,
+      isApprovedByDept: !!newItem.isApprovedByDept,
+      isApprovedByFinal: !!newItem.isApprovedByFinal,
+      isArchived: !!newItem.isArchived,
+    });
   });
 
   app.put('/api/news/:id', authenticateToken, async (req, res) => {
     const item = req.body;
     const now = new Date().toISOString();
     
-    const index = db.data.news_items.findIndex(n => n.id === req.params.id);
-    if (index === -1) return res.status(404).json({ error: 'Not found' });
+    const existing = await db.get('SELECT isArchived FROM news_items WHERE id = ?', [req.params.id]);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
     
-    if (db.data.news_items[index].isArchived) {
+    if (existing.isArchived) {
       return res.status(403).json({ error: 'Archived items cannot be modified' });
     }
 
-    db.data.news_items[index] = {
-      ...db.data.news_items[index],
-      ...item,
-      updatedAt: now,
-      isEdited: !!item.isEdited,
-      isReviewed: !!item.isReviewed,
-      isApprovedByDept: !!item.isApprovedByDept,
-      isApprovedByFinal: !!item.isApprovedByFinal,
-      isArchived: !!item.isArchived,
-    };
+    const fieldsToUpdate = [
+      'title', 'type', 'departmentId', 'content', 'contentFileName', 'preparedBy',
+      'isEdited', 'isReviewed', 'reviewerName', 'reviewerFileName',
+      'isApprovedByDept', 'approverName', 'approverFileName',
+      'isApprovedByFinal', 'finalApproverName', 'finalApproverFileName',
+      'otherType', 'publishDate', 'notes', 'newsUrl', 'isArchived', 'status', 'updatedAt'
+    ];
+
+    const values = [
+      item.title, item.type, item.departmentId, item.content, item.contentFileName, item.preparedBy,
+      item.isEdited ? 1 : 0, item.isReviewed ? 1 : 0, item.reviewerName, item.reviewerFileName,
+      item.isApprovedByDept ? 1 : 0, item.approverName, item.approverFileName,
+      item.isApprovedByFinal ? 1 : 0, item.finalApproverName, item.finalApproverFileName,
+      item.otherType, item.publishDate, item.notes, item.newsUrl, item.isArchived ? 1 : 0, item.status, now,
+      req.params.id
+    ];
+
+    await db.run(
+      `UPDATE news_items SET 
+        title = ?, type = ?, departmentId = ?, content = ?, contentFileName = ?, preparedBy = ?,
+        isEdited = ?, isReviewed = ?, reviewerName = ?, reviewerFileName = ?,
+        isApprovedByDept = ?, approverName = ?, approverFileName = ?,
+        isApprovedByFinal = ?, finalApproverName = ?, finalApproverFileName = ?,
+        otherType = ?, publishDate = ?, notes = ?, newsUrl = ?, isArchived = ?, status = ?, updatedAt = ?
+      WHERE id = ?`,
+      values
+    );
     
-    await db.write();
-    res.json(db.data.news_items[index]);
+    const updated = await db.get('SELECT * FROM news_items WHERE id = ?', [req.params.id]);
+    res.json({
+      ...updated,
+      isEdited: !!updated.isEdited,
+      isReviewed: !!updated.isReviewed,
+      isApprovedByDept: !!updated.isApprovedByDept,
+      isApprovedByFinal: !!updated.isApprovedByFinal,
+      isArchived: !!updated.isArchived,
+    });
   });
 
   app.delete('/api/news/:id', authenticateToken, async (req: any, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
     
-    const item = db.data.news_items.find(n => n.id === req.params.id);
+    const item = await db.get('SELECT isArchived FROM news_items WHERE id = ?', [req.params.id]);
     if (!item) return res.status(404).json({ error: 'Not found' });
     
     if (item.isArchived) {
       return res.status(403).json({ error: 'Archived items cannot be deleted' });
     }
 
-    db.data.news_items = db.data.news_items.filter(n => n.id !== req.params.id);
-    await db.write();
+    await db.run('DELETE FROM news_items WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   });
 
   // Archive Route
   app.post('/api/news/:id/archive', authenticateToken, async (req, res) => {
-    const index = db.data.news_items.findIndex(n => n.id === req.params.id);
-    if (index === -1) return res.status(404).json({ error: 'Not found' });
+    const item = await db.get('SELECT id FROM news_items WHERE id = ?', [req.params.id]);
+    if (!item) return res.status(404).json({ error: 'Not found' });
     
-    db.data.news_items[index].isArchived = true;
-    db.data.news_items[index].updatedAt = new Date().toISOString();
-    await db.write();
+    await db.run('UPDATE news_items SET isArchived = 1, updatedAt = ? WHERE id = ?', [new Date().toISOString(), req.params.id]);
     res.json({ success: true });
   });
 
   // Activity Logs
-  app.get('/api/activity-logs', authenticateToken, (req, res) => {
+  app.get('/api/activity-logs', authenticateToken, async (req, res) => {
     const newsItemId = req.query.newsItemId;
-    let logs = [...db.data.activity_logs];
+    let logs;
     
     if (newsItemId) {
-      logs = logs.filter(l => l.newsItemId === newsItemId);
+      logs = await db.all('SELECT * FROM activity_logs WHERE newsItemId = ? ORDER BY timestamp DESC LIMIT 50', [newsItemId]);
+    } else {
+      logs = await db.all('SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 50');
     }
     
-    logs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-    res.json(logs.slice(0, 50));
+    res.json(logs);
   });
 
   app.post('/api/activity-logs', authenticateToken, async (req, res) => {
     const log = req.body;
     const id = 'log-' + Date.now();
-    const newLog = { id, ...log };
-    db.data.activity_logs.push(newLog);
-    await db.write();
-    res.json(newLog);
+    await db.run(
+      'INSERT INTO activity_logs (id, newsItemId, userId, action, previousStatus, newStatus, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, log.newsItemId, log.userId, log.action, log.previousStatus, log.newStatus, log.timestamp]
+    );
+    res.json({ id, ...log });
   });
 
   // Comments
-  app.get('/api/news/:id/comments', authenticateToken, (req, res) => {
-    const comments = db.data.comments
-      .filter(c => c.newsItemId === req.params.id)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  app.get('/api/news/:id/comments', authenticateToken, async (req, res) => {
+    const comments = await db.all('SELECT * FROM comments WHERE newsItemId = ? ORDER BY createdAt ASC', [req.params.id]);
     res.json(comments);
   });
 
@@ -250,10 +437,11 @@ async function startServer() {
     const { text } = req.body;
     const id = 'comment-' + Date.now();
     const now = new Date().toISOString();
-    const newComment = { id, newsItemId: req.params.id, userId: req.user.uid, text, createdAt: now };
-    db.data.comments.push(newComment);
-    await db.write();
-    res.json(newComment);
+    await db.run(
+      'INSERT INTO comments (id, newsItemId, userId, text, createdAt) VALUES (?, ?, ?, ?, ?)',
+      [id, req.params.id, req.user.uid, text, now]
+    );
+    res.json({ id, newsItemId: req.params.id, userId: req.user.uid, text, createdAt: now });
   });
 
   // Vite middleware for development

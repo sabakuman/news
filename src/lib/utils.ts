@@ -31,7 +31,7 @@ export function getStatusColor(status: string) {
 export function getStatusLabel(status: string) {
   switch (status) {
     case 'draft': return 'مسودة';
-    case 'review': return 'بانتظار المراجعة الداخلية';
+    case 'review': return 'قيد الانتظار';
     case 'sector_approval': return 'بانتظار اعتماد القطاع';
     case 'final_approval': return 'بانتظار الاعتماد النهائي';
     case 'ready': return 'تمت الموافقة عليها';

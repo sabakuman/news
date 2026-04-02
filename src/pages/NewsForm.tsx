@@ -30,7 +30,7 @@ const NewsForm: React.FC = () => {
     publishDate: '',
     notes: '',
     newsUrl: '',
-    status: 'draft' as NewsStatus,
+    status: 'review' as NewsStatus,
     isEdited: false,
     isReviewed: false,
     reviewerName: '',
@@ -124,10 +124,16 @@ const NewsForm: React.FC = () => {
       const url = id ? `/api/news/${id}` : '/api/news';
       const method = id ? 'PUT' : 'POST';
       
+      const payload = {
+        ...formData,
+        content: formData.content || 'محتوى نصي (بدون ملف مرفق)',
+        preparedBy: formData.preparedBy || user.name
+      };
+      
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {

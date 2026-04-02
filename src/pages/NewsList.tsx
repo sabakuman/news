@@ -23,6 +23,10 @@ const NewsList: React.FC = () => {
   const fetchNews = async () => {
     try {
       const response = await fetch('/api/news');
+      if (response.status === 401) {
+        window.location.href = '/login';
+        return;
+      }
       if (!response.ok) throw new Error('فشل في جلب البيانات');
       const data = await response.json();
       setNews(data);
@@ -177,7 +181,7 @@ const NewsList: React.FC = () => {
         >
           <option value="all">كل الحالات</option>
           <option value="draft">مسودة</option>
-          <option value="review">بانتظار المراجعة الداخلية</option>
+          <option value="review">قيد الانتظار</option>
           <option value="sector_approval">بانتظار اعتماد القطاع</option>
           <option value="final_approval">بانتظار الاعتماد النهائي</option>
           <option value="ready">جاهز للنشر</option>

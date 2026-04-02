@@ -21,6 +21,10 @@ const Dashboard: React.FC = () => {
     const fetchDashboardData = async () => {
       try {
         const newsRes = await fetch('/api/news');
+        if (newsRes.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
         const newsData: NewsItem[] = await newsRes.json();
         
         // Logic:
@@ -52,6 +56,10 @@ const Dashboard: React.FC = () => {
         setRecentNews(pendingTasks);
 
         const activityRes = await fetch('/api/activity-logs');
+        if (activityRes.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
         const activityData = await activityRes.json();
         setRecentActivity(activityData.slice(0, 5));
 
