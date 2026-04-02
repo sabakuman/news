@@ -2,6 +2,8 @@ export type UserRole = 'admin' | 'editor' | 'reviewer' | 'sector_approver' | 'fi
 
 export interface User {
   uid: string;
+  username: string;
+  password?: string;
   name: string;
   email: string;
   role: UserRole;

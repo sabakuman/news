@@ -186,6 +186,19 @@ async function startServer() {
     });
   });
 
+  app.post('/api/auth/change-password', authenticateToken, async (req: any, res) => {
+    const { currentPassword, newPassword } = req.body;
+    const user = await db.get('SELECT * FROM users WHERE uid = ?', req.user.uid);
+
+    if (!user || !bcrypt.compareSync(currentPassword, user.password)) {
+      return res.status(401).json({ error: 'كلمة المرور الحالية غير صحيحة' });
+    }
+
+    const hashedNewPassword = bcrypt.hashSync(newPassword, 10);
+    await db.run('UPDATE users SET password = ? WHERE uid = ?', [hashedNewPassword, req.user.uid]);
+    res.json({ success: true });
+  });
+
   // User Management Routes (Admin only)
   app.get('/api/users', authenticateToken, async (req: any, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
@@ -217,6 +230,35 @@ async function startServer() {
     );
 
     res.json({ uid, username, name, email, role, status, departmentId });
+  });
+
+  app.put('/api/users/:uid', authenticateToken, async (req: any, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    const { username, password, name, email, role, status, departmentId } = req.body;
+    
+    const user = await db.get('SELECT * FROM users WHERE uid = ?', req.params.uid);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    let query = 'UPDATE users SET username = ?, name = ?, email = ?, role = ?, status = ?, department_id = ?';
+    let params = [username, name, email, role, status, departmentId];
+
+    if (password) {
+      query += ', password = ?';
+      params.push(bcrypt.hashSync(password, 10));
+    }
+
+    query += ' WHERE uid = ?';
+    params.push(req.params.uid);
+
+    try {
+      await db.run(query, params);
+      res.json({ success: true });
+    } catch (error: any) {
+      if (error.message.includes('UNIQUE constraint failed')) {
+        return res.status(400).json({ error: 'اسم المستخدم موجود مسبقاً' });
+      }
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.delete('/api/users/:uid', authenticateToken, async (req: any, res) => {

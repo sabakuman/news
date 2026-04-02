@@ -9,6 +9,9 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const { user, isAdmin, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -16,6 +19,37 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const handleLogout = async () => {
     await logout();
     navigate('/login');
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      alert('كلمات المرور الجديدة غير متطابقة');
+      return;
+    }
+    setIsChangingPassword(true);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: passwordData.currentPassword,
+          newPassword: passwordData.newPassword
+        })
+      });
+      if (res.ok) {
+        alert('تم تغيير كلمة المرور بنجاح');
+        setShowPasswordModal(false);
+        setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      } else {
+        const err = await res.json();
+        alert(err.error || 'فشل تغيير كلمة المرور');
+      }
+    } catch (error) {
+      console.error('Error changing password:', error);
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const navItems = [
@@ -134,6 +168,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                    user?.role === 'final_approver' ? 'معتمد نهائي' : 'مشاهد'}
                 </p>
               </div>
+              <button 
+                onClick={() => setShowPasswordModal(true)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant transition-colors"
+                title="تغيير كلمة المرور"
+              >
+                <span className="material-symbols-rounded text-[20px]">lock_reset</span>
+              </button>
             </div>
             <button 
               onClick={handleLogout}
@@ -191,12 +232,77 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <p className="text-xs font-black text-on-surface leading-none mb-1">{user?.name}</p>
                 <p className="text-[10px] text-on-surface-variant font-medium">{user?.email}</p>
               </div>
-              <div className="w-10 h-10 rounded-2xl bg-primary flex items-center justify-center text-on-primary text-sm font-black shadow-lg shadow-primary/20 shrink-0">
+              <button 
+                onClick={() => setShowPasswordModal(true)}
+                className="w-10 h-10 rounded-2xl bg-primary flex items-center justify-center text-on-primary text-sm font-black shadow-lg shadow-primary/20 shrink-0 hover:scale-105 transition-transform"
+              >
                 {user?.name.charAt(0)}
-              </div>
+              </button>
             </div>
           </div>
         </header>
+
+        {/* Change Password Modal */}
+        {showPasswordModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" dir="rtl">
+            <div className="bg-surface-container-lowest w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-outline-variant">
+              <div className="p-6 border-b border-outline-variant flex items-center justify-between">
+                <h2 className="text-xl font-bold text-primary">تغيير كلمة المرور</h2>
+                <button onClick={() => setShowPasswordModal(false)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-high transition-colors">
+                  <span className="material-symbols-rounded">close</span>
+                </button>
+              </div>
+              <form onSubmit={handleChangePassword} className="p-6 space-y-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-on-surface-variant">كلمة المرور الحالية</label>
+                  <input
+                    type="password"
+                    required
+                    className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                    value={passwordData.currentPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-on-surface-variant">كلمة المرور الجديدة</label>
+                  <input
+                    type="password"
+                    required
+                    className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                    value={passwordData.newPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-on-surface-variant">تأكيد كلمة المرور الجديدة</label>
+                  <input
+                    type="password"
+                    required
+                    className="w-full px-4 py-2.5 bg-surface-container-low border border-outline-variant rounded-xl outline-none focus:ring-2 focus:ring-primary transition-all"
+                    value={passwordData.confirmPassword}
+                    onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                  />
+                </div>
+                <div className="pt-4 flex gap-3">
+                  <button 
+                    type="submit" 
+                    disabled={isChangingPassword}
+                    className="flex-1 h-12 bg-primary text-on-primary font-bold rounded-xl hover:shadow-lg transition-all disabled:opacity-50"
+                  >
+                    {isChangingPassword ? 'جاري التغيير...' : 'تغيير كلمة المرور'}
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setShowPasswordModal(false)}
+                    className="flex-1 h-12 bg-surface-container-high text-on-surface font-bold rounded-xl hover:bg-surface-container-highest transition-all"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Dynamic Page Content */}
         <main className="flex-1 overflow-y-auto p-6 lg:p-12 bg-surface">
