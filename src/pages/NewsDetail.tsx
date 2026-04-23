@@ -17,6 +17,20 @@ const NewsDetail: React.FC = () => {
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const handleDownload = (fileName: string) => {
+    // In a real app, this would be a link to the actual file on the server
+    // For this demo, we'll simulate the download of a dummy file with the same name
+    const blob = new Blob([`محتوى تجريبي لملف: ${fileName}`], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  };
+
   useEffect(() => {
     if (!id) return;
 
@@ -347,21 +361,31 @@ const NewsDetail: React.FC = () => {
 
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-on-surface-variant uppercase tracking-wider">محتوى الخبر:</h3>
-              <div className="p-6 bg-surface-container-low rounded-2xl border border-outline-variant flex items-center justify-between group">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-primary-container text-on-primary-container rounded-xl flex items-center justify-center">
-                    <span className="material-symbols-rounded text-[28px]">description</span>
+              {news.contentFileName ? news.contentFileName.split(', ').map((fileName, idx) => (
+                <div key={idx} className="p-6 bg-surface-container-low rounded-2xl border border-outline-variant flex items-center justify-between group">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-primary-container text-on-primary-container rounded-xl flex items-center justify-center">
+                      <span className="material-symbols-rounded text-[28px]">description</span>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-on-surface">{fileName}</p>
+                      <p className="text-xs text-on-surface-variant">{fileName.includes('.') ? fileName.split('.').pop()?.toUpperCase() : 'الملف الكامل'}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-bold text-on-surface">{news.contentFileName || 'ملف المحتوى'}</p>
-                    <p className="text-xs text-on-surface-variant">انقر لتحميل وقراءة المحتوى الكامل</p>
-                  </div>
+                  <button 
+                    onClick={() => handleDownload(fileName)}
+                    className="h-10 px-4 bg-primary text-on-primary text-sm font-bold rounded-full hover:shadow-md transition-all flex items-center gap-2"
+                  >
+                    <span className="material-symbols-rounded text-[20px]">download</span>
+                    <span>تحميل</span>
+                  </button>
                 </div>
-                <button className="h-10 px-4 bg-primary text-on-primary text-sm font-bold rounded-full hover:shadow-md transition-all flex items-center gap-2">
-                  <span className="material-symbols-rounded text-[20px]">download</span>
-                  <span>تحميل</span>
-                </button>
-              </div>
+              )) : (
+                <div className="p-10 border-2 border-dashed border-outline-variant rounded-2xl text-center bg-surface-container-low">
+                   <span className="material-symbols-rounded text-on-surface-variant/20 text-[40px] mb-2">description_off</span>
+                   <p className="text-sm font-bold text-on-surface-variant/40 italic">لا يوجد ملف محتوى مرتبط بهذا الخبر</p>
+                </div>
+              )}
             </div>
 
             {/* Review & Approvals Status */}
@@ -392,10 +416,18 @@ const NewsDetail: React.FC = () => {
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-blue-100/50">
                       <p className="text-[11px] font-bold">بواسطة: {news.reviewerName || 'غير محدد'}</p>
                       {news.reviewerFileName && (
-                        <button className="flex items-center gap-1 text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 transition-colors">
-                          <span className="material-symbols-rounded text-[14px]">download</span>
-                          <span>الملف</span>
-                        </button>
+                        <div className="flex flex-col gap-1 w-full">
+                          {news.reviewerFileName.split(', ').map((fileName, idx) => (
+                            <button 
+                              key={idx}
+                              onClick={() => handleDownload(fileName)}
+                              className="flex items-center gap-1 text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 transition-colors w-fit self-end"
+                            >
+                              <span className="material-symbols-rounded text-[14px]">download</span>
+                              <span>{fileName}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
@@ -415,10 +447,18 @@ const NewsDetail: React.FC = () => {
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-blue-100/50">
                       <p className="text-[11px] font-bold">بواسطة: {news.approverName || 'غير محدد'}</p>
                       {news.approverFileName && (
-                        <button className="flex items-center gap-1 text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 transition-colors">
-                          <span className="material-symbols-rounded text-[14px]">download</span>
-                          <span>الملف</span>
-                        </button>
+                        <div className="flex flex-col gap-1 w-full">
+                          {news.approverFileName.split(', ').map((fileName, idx) => (
+                            <button 
+                              key={idx}
+                              onClick={() => handleDownload(fileName)}
+                              className="flex items-center gap-1 text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 transition-colors w-fit self-end"
+                            >
+                              <span className="material-symbols-rounded text-[14px]">download</span>
+                              <span>{fileName}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
@@ -438,10 +478,18 @@ const NewsDetail: React.FC = () => {
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-blue-100/50">
                       <p className="text-[11px] font-bold">بواسطة: {news.finalApproverName || 'غير محدد'}</p>
                       {news.finalApproverFileName && (
-                        <button className="flex items-center gap-1 text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 transition-colors">
-                          <span className="material-symbols-rounded text-[14px]">download</span>
-                          <span>الملف</span>
-                        </button>
+                        <div className="flex flex-col gap-1 w-full">
+                          {news.finalApproverFileName.split(', ').map((fileName, idx) => (
+                            <button 
+                              key={idx}
+                              onClick={() => handleDownload(fileName)}
+                              className="flex items-center gap-1 text-[10px] font-bold bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 transition-colors w-fit self-end"
+                            >
+                              <span className="material-symbols-rounded text-[14px]">download</span>
+                              <span>{fileName}</span>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
@@ -510,7 +558,11 @@ const NewsDetail: React.FC = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-highest text-on-surface-variant transition-colors">
+                      <button 
+                        onClick={() => handleDownload(file.name)}
+                        className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-highest text-on-surface-variant transition-colors"
+                        title="تحميل"
+                      >
                         <span className="material-symbols-rounded text-[20px]">download</span>
                       </button>
                       <button className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-highest text-on-surface-variant transition-colors">

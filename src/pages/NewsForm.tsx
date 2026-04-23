@@ -103,9 +103,10 @@ const NewsForm: React.FC = () => {
   };
 
   const handleApprovalFileChange = (e: React.ChangeEvent<HTMLInputElement>, field: 'reviewerFileName' | 'approverFileName' | 'finalApproverFileName') => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setFormData(prev => ({ ...prev, [field]: file.name }));
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      const fileNames = files.map(f => f.name).join(', ');
+      setFormData(prev => ({ ...prev, [field]: fileNames }));
     }
   };
 
@@ -374,6 +375,7 @@ const NewsForm: React.FC = () => {
                         ref={reviewerFileRef} 
                         onChange={(e) => handleApprovalFileChange(e, 'reviewerFileName')} 
                         className="hidden" 
+                        multiple
                         disabled={formData.isArchived}
                       />
                       <span className="material-symbols-rounded text-[20px] text-blue-600">upload</span>
@@ -434,6 +436,7 @@ const NewsForm: React.FC = () => {
                         ref={approverFileRef} 
                         onChange={(e) => handleApprovalFileChange(e, 'approverFileName')} 
                         className="hidden" 
+                        multiple
                         disabled={formData.isArchived}
                       />
                       <span className="material-symbols-rounded text-[20px] text-blue-600">upload</span>
@@ -494,6 +497,7 @@ const NewsForm: React.FC = () => {
                         ref={finalApproverFileRef} 
                         onChange={(e) => handleApprovalFileChange(e, 'finalApproverFileName')} 
                         className="hidden" 
+                        multiple
                         disabled={formData.isArchived}
                       />
                       <span className="material-symbols-rounded text-[20px] text-blue-600">upload</span>
