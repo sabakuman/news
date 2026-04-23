@@ -148,7 +148,7 @@ async function startServer() {
   app.post('/api/auth/login', async (req, res) => {
     const { username, password } = req.body;
     
-    const user = await db.get('SELECT * FROM users WHERE username = ?', username);
+    const user = await db.get('SELECT * FROM users WHERE username = ? COLLATE NOCASE', username);
 
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({ error: 'Invalid username or password' });
@@ -215,7 +215,7 @@ async function startServer() {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
     const { username, password, name, email, role, status, departmentId } = req.body;
     
-    const existing = await db.get('SELECT uid FROM users WHERE username = ?', username);
+    const existing = await db.get('SELECT uid FROM users WHERE username = ? COLLATE NOCASE', username);
 
     if (existing) {
       return res.status(400).json({ error: 'Username already exists' });

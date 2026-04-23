@@ -17,7 +17,7 @@ const NewsForm: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -94,10 +94,11 @@ const NewsForm: React.FC = () => {
   }, [id, user]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setSelectedFile(file);
-      setFormData(prev => ({ ...prev, contentFileName: file.name, content: file.name }));
+    if (e.target.files && e.target.files.length > 0) {
+      const files = Array.from(e.target.files);
+      setSelectedFiles(files);
+      const fileNames = files.map(f => f.name).join(', ');
+      setFormData(prev => ({ ...prev, contentFileName: fileNames, content: fileNames }));
     }
   };
 
@@ -251,7 +252,7 @@ const NewsForm: React.FC = () => {
               onClick={() => !formData.isArchived && fileInputRef.current?.click()}
               className={cn(
                 "w-full p-8 border-2 border-dashed rounded-3xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all",
-                selectedFile || formData.contentFileName ? "border-primary bg-primary/5" : "border-outline-variant bg-surface-container-low hover:bg-surface-container-high",
+                selectedFiles.length > 0 || formData.contentFileName ? "border-primary bg-primary/5" : "border-outline-variant bg-surface-container-low hover:bg-surface-container-high",
                 formData.isArchived && "opacity-50 cursor-not-allowed"
               )}
             >
@@ -260,19 +261,20 @@ const NewsForm: React.FC = () => {
                 ref={fileInputRef} 
                 onChange={handleFileChange} 
                 className="hidden" 
+                multiple
                 disabled={formData.isArchived}
               />
               <div className={cn(
                 "w-14 h-14 rounded-2xl flex items-center justify-center transition-colors",
-                selectedFile || formData.contentFileName ? "bg-primary text-on-primary" : "bg-surface-container-high text-on-surface-variant/40"
+                selectedFiles.length > 0 || formData.contentFileName ? "bg-primary text-on-primary" : "bg-surface-container-high text-on-surface-variant/40"
               )}>
                 <span className="material-symbols-rounded text-[32px]">upload_file</span>
               </div>
               <div className="text-center">
                 <p className="text-sm font-bold text-on-surface">
-                  {selectedFile?.name || formData.contentFileName || "اضغط لتحميل ملف محتوى الخبر"}
+                  {selectedFiles.length > 0 ? selectedFiles.map(f => f.name).join(', ') : (formData.contentFileName || "اضغط لتحميل ملف أو أكثر لمحتوى الخبر")}
                 </p>
-                <p className="text-xs text-on-surface-variant mt-1 font-medium">يدعم جميع أنواع الملفات</p>
+                <p className="text-xs text-on-surface-variant mt-1 font-medium">يمكنك اختيار ملفات متعددة</p>
               </div>
             </div>
           </div>
